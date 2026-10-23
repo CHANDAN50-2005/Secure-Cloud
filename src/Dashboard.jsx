@@ -8,13 +8,12 @@ import {
   Settings,
   Search,
   Bell,
-  Plus,
   Upload,
   FileText,
   FileImage,
   FileSpreadsheet,
   MoreHorizontal,
-  Download,
+  Trash2,
   Clock3,
   ArrowUpRight,
   HardDrive,
@@ -38,6 +37,7 @@ const initialFiles = [
     color: 'text-rose-500',
     background: 'bg-rose-50',
     encrypted: true,
+    sharedPreview: true,
   },
   {
     id: 2,
@@ -112,9 +112,15 @@ function Dashboard({ onLogout }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [files, setFiles] = useState(initialFiles)
 
-  const filteredFiles = files.filter((file) =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  const filteredFiles = files.filter((file) => {
+    const matchesPage =
+      activePage !== 'Shared Files' || file.sharedPreview === true
+    const matchesSearch = file.name
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase())
+
+    return matchesPage && matchesSearch
+  })
 
   const handleUpload = (event) => {
     const selectedFiles = Array.from(event.target.files || [])
@@ -154,6 +160,7 @@ function Dashboard({ onLogout }) {
         color,
         background,
         encrypted: false,
+        localPreview: true,
       }
     })
 
@@ -621,14 +628,30 @@ function Dashboard({ onLogout }) {
                             </td>
 
                             <td className="px-4 py-4">
-                              <button
-                                type="button"
-                                aria-label={`Options for ${file.name}`}
-                                title="File options preview"
-                                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                              >
-                                <MoreHorizontal size={18} />
-                              </button>
+                              {file.localPreview ? (
+                                <button
+                                  type="button"
+                                  aria-label={`Remove ${file.name} from this preview`}
+                                  title="Remove from this preview"
+                                  onClick={() =>
+                                    setFiles((previous) =>
+                                      previous.filter((item) => item.id !== file.id),
+                                    )
+                                  }
+                                  className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  aria-label={`Options for ${file.name}`}
+                                  title="File options preview"
+                                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                >
+                                  <MoreHorizontal size={18} />
+                                </button>
+                              )}
                             </td>
                           </tr>
                         )
@@ -643,10 +666,14 @@ function Dashboard({ onLogout }) {
                         className="mx-auto text-slate-300"
                       />
                       <p className="mt-3 text-sm font-medium text-slate-700">
-                        No matching files
+                        {activePage === 'Shared Files' && !searchQuery
+                          ? 'No sample shared files'
+                          : 'No matching files'}
                       </p>
                       <p className="mt-1 text-xs text-slate-400">
-                        Try a different search term.
+                        {activePage === 'Shared Files' && !searchQuery
+                          ? 'Shared links are a planned feature and are not connected yet.'
+                          : 'Try a different search term.'}
                       </p>
                     </div>
                   )}

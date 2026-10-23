@@ -32,12 +32,6 @@ function App() {
     return <Dashboard onLogout={() => setShowDashboard(false)} />
   }
 
-  const switchMode = () => {
-    setIsLogin((previous) => !previous)
-    setShowPassword(false)
-    setMessage('')
-  }
-
   return (
     <main className="min-h-screen bg-white lg:grid lg:grid-cols-2">
       {/* Left branding panel */}

@@ -42,14 +42,18 @@
 * Added temporary frontend navigation between authentication and dashboard.
 * Added sample file data, search, local file selection, dashboard statistics, and navigation.
 * Verified that the login screen and dashboard render successfully.
+* Added removal for locally selected preview rows and filtering for the Shared Files sample view.
+* Added an Express server scaffold with a health endpoint at `/api/health`.
+* Configured the Vite development server to proxy `/api` requests to Express and verified the proxied health endpoint.
+* Added MongoDB-backed account and session routes for registration, login, session lookup, and logout. Passwords are hashed with Node's built-in scrypt; session cookies are HTTP-only.
+* Added environment variable examples and Git ignores for local `.env` files.
 
 ## 6. Current Limitations
 
 The application is currently a frontend prototype.
 
-* Authentication is not connected to a backend.
-* Login does not verify real credentials.
-* Registration does not create accounts.
+* The React login and registration form is not connected to the API yet.
+* Account routes require a valid `MONGODB_URI`; no database connection string is configured, so account creation and login have not been verified against MongoDB.
 * File selection does not upload files to cloud storage.
 * Dashboard statistics and activity logs use sample data.
 * Encryption has not been implemented.
@@ -84,8 +88,8 @@ All external services must be checked for current free-tier limits before use.
 ## 9. Current Development Stage
 
 **Stage:** Frontend foundation
-**Status:** Login UI and dashboard verified
-**Next task:** Complete and verify the frontend navigation and file-management experience before backend integration.
+**Status:** Express authentication routes and MongoDB models are implemented, but no database connection is configured. The frontend still uses its temporary local navigation flow.
+**Next task:** Configure a local or Atlas MongoDB URI and verify registration, login, session lookup, and logout; then connect the existing React form to the API.
 
 ## 10. Development Rules
 
