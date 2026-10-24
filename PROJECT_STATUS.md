@@ -1,102 +1,80 @@
 # SecureCloud — Project Status
 
-## 1. Project Overview
+## Project overview
 
-**Project:** SecureCloud
-**Type:** Advanced Cloud Computing Mini Project
 **Goal:** Build a secure cloud file-sharing application with authentication, private file storage, encryption, controlled sharing, and activity monitoring.
 
-## 2. Development Environment
+**Project path:** `C:\Users\Chandan\Documents\Projects\securecloud`
 
-* OS: Windows
-* Editor: VS Code
-* Node.js: v24.12.0
-* npm: 11.6.2
-* Git: 2.50.0
-* Frontend: React + Vite
-* Styling: Tailwind CSS
-* Icons: Lucide React
+**Frontend:** React, Vite, Tailwind CSS, Lucide React
+**Cloud platform:** Supabase Auth, Postgres, and private Storage
+**Optional server:** Node.js + Express health endpoint only
 
-## 3. Project Location
+## Agreed UI direction
 
-`C:\Users\Chandan\Documents\Projects\securecloud`
+- Deep navy branding with electric-blue accents.
+- Clean white cards and light-gray backgrounds.
+- Responsive layouts.
+- Preserve the approved login, registration, and dashboard design as backend functionality is added.
 
-## 4. Agreed UI Design
+## Completed
 
-* Deep navy branding with electric-blue accents.
-* Clean white cards and light-gray backgrounds.
-* Responsive layouts.
-* Consistent SecureCloud branding across authentication and dashboard.
-* Preserve the approved UI and authentication flow as backend functionality is added.
+- Created the React/Vite application, global styles, and Tailwind configuration.
+- Built the login and registration UI and dashboard prototype.
+- Added dashboard navigation, search, statistics, and sample activity presentation.
+- Added an optional Express `/api/health` endpoint and Vite proxy.
+- Added Supabase JS client setup using root `.env` variables.
+- Connected registration, login, session restoration, and logout to Supabase Auth in code.
+- Added a private Storage bucket and `file_records` metadata schema with owner-scoped RLS policies in `supabase/schema.sql`.
+- Connected file listing, upload, download, and delete operations to Supabase Storage and Postgres in code.
+- Added database-enforced admin roles, aggregate admin RPCs, and audit events for file operations.
+- Added an Admin Console for user/file/storage totals and recent file activity. Admins do not get file-content access.
+- Removed the unused MongoDB authentication scaffold and related server dependencies.
+- Added `.env.example` and ignored local environment files.
+- Updated setup instructions in `README.md`.
+- Configured this local checkout with a Supabase project and applied the SQL schema. Read-only checks confirmed the Auth service responds and unauthenticated access to `file_records` is denied.
+- User confirmed live Gmail email confirmation, sign-in, and file upload/download/delete work successfully.
+- User confirmed the correct admin account can sign in and see the Admin Console after admin setup.
+- Replaced the regular dashboard's example activity feed with a per-user view of recorded file events.
 
-## 5. Completed Work
+## Current limitations and verification
 
-* Created the React application using Vite.
-* Selected ESLint.
-* Installed project dependencies.
-* Configured Tailwind CSS through the Vite plugin.
-* Established global styles in `src/index.css`.
-* Installed Lucide React.
-* Created the login and registration UI in `src/App.jsx`.
-* Created the dashboard in `src/Dashboard.jsx`.
-* Added temporary frontend navigation between authentication and dashboard.
-* Added sample file data, search, local file selection, dashboard statistics, and navigation.
-* Verified that the login screen and dashboard render successfully.
-* Added removal for locally selected preview rows and filtering for the Shared Files sample view.
-* Added an Express server scaffold with a health endpoint at `/api/health`.
-* Configured the Vite development server to proxy `/api` requests to Express and verified the proxied health endpoint.
-* Added MongoDB-backed account and session routes for registration, login, session lookup, and logout. Passwords are hashed with Node's built-in scrypt; session cookies are HTTP-only.
-* Added environment variable examples and Git ignores for local `.env` files.
+- The core Auth and private file-management flow has been reported working against the configured Supabase project. Admin Console visibility is confirmed for the assigned account; live summary and activity-feed data still need a final check.
+- The new per-user activity RPC was added after the initial admin schema was applied; rerun `supabase/admin-schema.sql` before verifying the regular Activity Logs page. Admin activity is app-reported, not a tamper-proof forensic audit log.
+- Shared-file navigation is a placeholder. Sharing links, permissions, expiration, and revocation are not implemented.
+- Files are stored without SecureCloud client-side encryption. The private bucket and access policies control access but do not provide end-to-end encryption.
+- Account preferences and advanced security settings are placeholders.
+- The optional Express server does not provide authentication, metadata, or file APIs; the browser uses Supabase directly.
 
-## 6. Current Limitations
+## Planned technology and structure
 
-The application is currently a frontend prototype.
+```text
+src/
+  lib/supabase.js             Supabase client and configuration state
+  services/fileStorage.js     Authenticated Storage and metadata operations
+  App.jsx                     Authentication flow and session state
+  Dashboard.jsx               File management UI
+supabase/
+  schema.sql                  Private bucket, metadata table, and RLS policies
+  admin-schema.sql            Admin roles, safe summary RPCs, and activity events
+server/
+  index.js                    Optional health endpoint only
+```
 
-* The React login and registration form is not connected to the API yet.
-* Account routes require a valid `MONGODB_URI`; no database connection string is configured, so account creation and login have not been verified against MongoDB.
-* File selection does not upload files to cloud storage.
-* Dashboard statistics and activity logs use sample data.
-* Encryption has not been implemented.
-* Sharing links and access controls are not connected to a backend.
+Supabase provides authentication, Postgres metadata, and object storage for the current design. MongoDB is not part of the planned stack.
 
-## 7. Planned Technology Stack
+## Next steps
 
-* React + Vite
-* Tailwind CSS
-* Lucide React
-* Node.js + Express
-* MongoDB Atlas for application metadata
-* Supabase Storage for cloud file storage
-* Secure authentication and authorization
-* Browser Web Crypto API for client-side AES-GCM encryption
+1. Rerun the updated `supabase/admin-schema.sql` and verify the per-user Activity Logs feed. The Admin Console summary and admin activity feed have already loaded successfully.
+2. Design sharing permissions, link expiration, and revocation before implementing share links.
+3. Plan client-side encryption and key management before storing sensitive files.
+4. Evaluate deployment and hosting options while keeping costs low.
 
-All external services must be checked for current free-tier limits before use.
+## Development rules
 
-## 8. Planned Features
-
-1. Complete the frontend dashboard and file-management interface.
-2. Implement backend authentication and authorization.
-3. Connect MongoDB.
-4. Integrate private cloud storage.
-5. Implement file upload, download, and deletion.
-6. Implement secure sharing links.
-7. Add expiration and revocation.
-8. Implement client-side encryption and key handling.
-9. Add activity logs and security controls.
-10. Test and deploy the application.
-
-## 9. Current Development Stage
-
-**Stage:** Frontend foundation
-**Status:** Express authentication routes and MongoDB models are implemented, but no database connection is configured. The frontend still uses its temporary local navigation flow.
-**Next task:** Configure a local or Atlas MongoDB URI and verify registration, login, session lookup, and logout; then connect the existing React form to the API.
-
-## 10. Development Rules
-
-* Work incrementally.
-* Verify each major step before proceeding.
-* Preserve the approved UI and authentication flow.
-* Do not claim a feature works until it has been tested.
-* Keep secrets and credentials out of Git.
-* Avoid paid services wherever possible.
-* Update this document when major milestones are completed.
+- Work incrementally and explain major changes before making them.
+- Preserve the approved UI and authentication flow.
+- Do not claim a feature works until it has been tested against its service.
+- Keep secrets and credentials out of Git.
+- Prefer free services where practical and check current limits before relying on them.
+- Update this document when major milestones are completed.

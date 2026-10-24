@@ -1,5 +1,6 @@
 import Dashboard from './Dashboard'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 import {
   Cloud,
   ShieldCheck,
@@ -16,20 +17,87 @@ import {
 
 function App() {
   const [showDashboard, setShowDashboard] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
   const [isLogin, setIsLogin] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(
+    isSupabaseConfigured
+      ? ''
+      : 'Add your Supabase URL and publishable key to the project .env file to enable accounts.',
+  )
 
-  const handleSubmit = (event) => {
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      return undefined
+    }
+
+    let isMounted = true
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!isMounted) return
+      if (error) setMessage(error.message)
+      setCurrentUser(data.session?.user ?? null)
+      setShowDashboard(Boolean(data.session))
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null)
+      setShowDashboard(Boolean(session))
+    })
+
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  const handleSubmit = async (event) => {
     event.preventDefault()
-    setShowDashboard(true)
+
+    if (!supabase) {
+      setMessage('Supabase is not configured. Add your project URL and publishable key to .env.')
+      return
+    }
+
+    setIsSubmitting(true)
+    setMessage('')
+
+    try {
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error) throw error
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: fullName.trim() } },
+        })
+        if (error) throw error
+        if (!data.session) {
+          setMessage('Account created. Check your email for the confirmation link before signing in.')
+        }
+      }
+    } catch (error) {
+      setMessage(error.message || 'Authentication failed. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (showDashboard) {
-    return <Dashboard onLogout={() => setShowDashboard(false)} />
+    return (
+      <Dashboard
+        user={currentUser}
+        onLogout={async () => {
+          const { error } = await supabase.auth.signOut()
+          if (error) throw error
+          setShowDashboard(false)
+        }}
+      />
+    )
   }
 
   return (
@@ -245,7 +313,7 @@ function App() {
                     type="button"
                     onClick={() =>
                       setMessage(
-                        'Password recovery will be connected when authentication is implemented.',
+                        'Password recovery will be added in a later step.',
                       )
                     }
                     className="text-xs font-medium text-blue-600 hover:text-blue-700"
@@ -308,9 +376,14 @@ function App() {
 
             <button
               type="submit"
-              className="group flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 hover:shadow-blue-600/30 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+              disabled={isSubmitting}
+              className="group flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 hover:shadow-blue-600/30 focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-wait disabled:opacity-70"
             >
-              {isLogin ? 'Sign in to SecureCloud' : 'Create account'}
+              {isSubmitting
+                ? 'Please wait…'
+                : isLogin
+                  ? 'Sign in to SecureCloud'
+                  : 'Create account'}
               <ArrowRight
                 size={17}
                 className="transition-transform group-hover:translate-x-1"

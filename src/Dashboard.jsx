@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Cloud,
   LayoutDashboard,
@@ -14,6 +14,7 @@ import {
   FileSpreadsheet,
   MoreHorizontal,
   Trash2,
+  Download,
   Clock3,
   ArrowUpRight,
   HardDrive,
@@ -25,78 +26,18 @@ import {
   X,
   FolderOpen,
 } from 'lucide-react'
-
-const initialFiles = [
-  {
-    id: 1,
-    name: 'Project_Report.pdf',
-    type: 'PDF Document',
-    size: '2.4 MB',
-    modified: 'Today, 10:42 AM',
-    icon: FileText,
-    color: 'text-rose-500',
-    background: 'bg-rose-50',
-    encrypted: true,
-    sharedPreview: true,
-  },
-  {
-    id: 2,
-    name: 'UI_Design.png',
-    type: 'Image',
-    size: '1.8 MB',
-    modified: 'Yesterday',
-    icon: FileImage,
-    color: 'text-violet-500',
-    background: 'bg-violet-50',
-    encrypted: true,
-  },
-  {
-    id: 3,
-    name: 'Semester_Results.xlsx',
-    type: 'Spreadsheet',
-    size: '840 KB',
-    modified: 'Oct 9, 2026',
-    icon: FileSpreadsheet,
-    color: 'text-emerald-600',
-    background: 'bg-emerald-50',
-    encrypted: true,
-  },
-  {
-    id: 4,
-    name: 'Project_Documentation.pdf',
-    type: 'PDF Document',
-    size: '3.2 MB',
-    modified: 'Oct 8, 2026',
-    icon: FileText,
-    color: 'text-rose-500',
-    background: 'bg-rose-50',
-    encrypted: true,
-  },
-]
-
-const activities = [
-  {
-    title: 'Project_Report.pdf uploaded',
-    detail: 'Today at 10:42 AM',
-    icon: Upload,
-    color: 'text-blue-600',
-    background: 'bg-blue-50',
-  },
-  {
-    title: 'Sharing link created',
-    detail: 'Today at 9:15 AM',
-    icon: Share2,
-    color: 'text-violet-600',
-    background: 'bg-violet-50',
-  },
-  {
-    title: 'Security settings reviewed',
-    detail: 'Yesterday at 6:30 PM',
-    icon: ShieldCheck,
-    color: 'text-emerald-600',
-    background: 'bg-emerald-50',
-  },
-]
+import AdminDashboard from './components/AdminDashboard'
+import {
+  checkAdminRole,
+  loadAdminOverview,
+  loadMyRecentActivity,
+} from './services/admin'
+import {
+  deleteCloudFile,
+  downloadCloudFile,
+  listCloudFiles,
+  uploadCloudFile,
+} from './services/fileStorage'
 
 const navigation = [
   { label: 'Overview', icon: LayoutDashboard },
@@ -106,15 +47,196 @@ const navigation = [
   { label: 'Activity Logs', icon: Activity },
 ]
 
-function Dashboard({ onLogout }) {
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function presentFile(record) {
+  const extension = record.name.split('.').pop()?.toLowerCase()
+  let icon = FileText
+  let color = 'text-rose-500'
+  let background = 'bg-rose-50'
+  let type = record.content_type || 'File'
+
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(extension)) {
+    icon = FileImage
+    color = 'text-violet-500'
+    background = 'bg-violet-50'
+    type = 'Image'
+  } else if (['xls', 'xlsx', 'csv'].includes(extension)) {
+    icon = FileSpreadsheet
+    color = 'text-emerald-600'
+    background = 'bg-emerald-50'
+    type = 'Spreadsheet'
+  } else if (extension === 'pdf') {
+    type = 'PDF Document'
+  }
+
+  return {
+    ...record,
+    type,
+    size: formatFileSize(Number(record.size_bytes)),
+    modified: new Date(record.created_at).toLocaleString(),
+    icon,
+    color,
+    background,
+  }
+}
+
+function presentActivity(event) {
+  const activityTypes = {
+    'file.uploaded': {
+      title: 'File uploaded',
+      icon: Upload,
+      color: 'text-blue-600',
+      background: 'bg-blue-50',
+    },
+    'file.downloaded': {
+      title: 'File downloaded',
+      icon: Download,
+      color: 'text-violet-600',
+      background: 'bg-violet-50',
+    },
+    'file.deleted': {
+      title: 'File deleted',
+      icon: Trash2,
+      color: 'text-rose-600',
+      background: 'bg-rose-50',
+    },
+  }
+  const description = activityTypes[event.event_type] || {
+    title: event.event_type,
+    icon: Activity,
+    color: 'text-slate-600',
+    background: 'bg-slate-50',
+  }
+
+  return {
+    ...description,
+    id: event.id,
+    detail: `${new Date(event.created_at).toLocaleString()} · Ref ${event.file_id?.slice(0, 8) || '—'}`,
+  }
+}
+
+function Dashboard({ onLogout, user }) {
   const [activePage, setActivePage] = useState('Overview')
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [files, setFiles] = useState(initialFiles)
+  const [files, setFiles] = useState([])
+  const [isLoadingFiles, setIsLoadingFiles] = useState(true)
+  const [isUploading, setIsUploading] = useState(false)
+  const [fileMessage, setFileMessage] = useState('')
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [adminOverview, setAdminOverview] = useState(null)
+  const [isLoadingAdmin, setIsLoadingAdmin] = useState(true)
+  const [adminError, setAdminError] = useState('')
+  const [activities, setActivities] = useState([])
+  const [isLoadingActivities, setIsLoadingActivities] = useState(true)
+  const [activityError, setActivityError] = useState('')
+
+  const displayName =
+    user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
+  const totalBytes = files.reduce((total, file) => total + Number(file.size_bytes), 0)
+
+  useEffect(() => {
+    let isMounted = true
+    checkAdminRole()
+      .then((hasAdminRole) => {
+        if (isMounted) setIsAdmin(hasAdminRole)
+      })
+      .catch(() => {
+        if (isMounted) setIsAdmin(false)
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [user?.id])
+
+  useEffect(() => {
+    if (activePage !== 'Admin Console' || !isAdmin) return undefined
+    let isMounted = true
+    loadAdminOverview()
+      .then((overview) => {
+        if (isMounted) {
+          setAdminOverview(overview)
+          setAdminError('')
+        }
+      })
+      .catch((error) => {
+        if (isMounted) setAdminError(error.message || 'Unable to load admin overview.')
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingAdmin(false)
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [activePage, isAdmin])
+
+  useEffect(() => {
+    let isMounted = true
+    loadMyRecentActivity()
+      .then((records) => {
+        if (isMounted) setActivities(records.map(presentActivity))
+      })
+      .catch((error) => {
+        if (isMounted) setActivityError(error.message || 'Unable to load activity.')
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingActivities(false)
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [user?.id])
+
+  const refreshActivities = async () => {
+    try {
+      const records = await loadMyRecentActivity()
+      setActivities(records.map(presentActivity))
+      setActivityError('')
+    } catch (error) {
+      setActivityError(error.message || 'Unable to refresh activity.')
+    }
+  }
+
+  const refreshAdminOverview = async () => {
+    setIsLoadingAdmin(true)
+    setAdminError('')
+    try {
+      setAdminOverview(await loadAdminOverview())
+    } catch (error) {
+      setAdminError(error.message || 'Unable to load admin overview.')
+    } finally {
+      setIsLoadingAdmin(false)
+    }
+  }
+
+  useEffect(() => {
+    let isMounted = true
+
+    listCloudFiles()
+      .then((records) => {
+        if (isMounted) setFiles(records.map(presentFile))
+      })
+      .catch((error) => {
+        if (isMounted) setFileMessage(error.message || 'Unable to load your files.')
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingFiles(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [user?.id])
 
   const filteredFiles = files.filter((file) => {
-    const matchesPage =
-      activePage !== 'Shared Files' || file.sharedPreview === true
+    const matchesPage = activePage !== 'Shared Files'
     const matchesSearch = file.name
       .toLowerCase()
       .includes(searchQuery.toLowerCase())
@@ -122,55 +244,76 @@ function Dashboard({ onLogout }) {
     return matchesPage && matchesSearch
   })
 
-  const handleUpload = (event) => {
+  const handleUpload = async (event) => {
     const selectedFiles = Array.from(event.target.files || [])
-
-    if (!selectedFiles.length) return
-
-    const newFiles = selectedFiles.map((file, index) => {
-      const extension = file.name.split('.').pop()?.toLowerCase()
-
-      let icon = FileText
-      let color = 'text-rose-500'
-      let background = 'bg-rose-50'
-      let type = 'Document'
-
-      if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(extension)) {
-        icon = FileImage
-        color = 'text-violet-500'
-        background = 'bg-violet-50'
-        type = 'Image'
-      } else if (['xls', 'xlsx', 'csv'].includes(extension)) {
-        icon = FileSpreadsheet
-        color = 'text-emerald-600'
-        background = 'bg-emerald-50'
-        type = 'Spreadsheet'
-      }
-
-      return {
-        id: `${Date.now()}-${index}`,
-        name: file.name,
-        type,
-        size:
-          file.size >= 1024 * 1024
-            ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-            : `${Math.max(1, Math.round(file.size / 1024))} KB`,
-        modified: 'Just now',
-        icon,
-        color,
-        background,
-        encrypted: false,
-        localPreview: true,
-      }
-    })
-
-    setFiles((previous) => [...newFiles, ...previous])
-    setActivePage('My Files')
     event.target.value = ''
+
+    if (!selectedFiles.length || !user) return
+
+    setIsUploading(true)
+    setFileMessage('')
+    const uploadedFiles = []
+    const failures = []
+
+    for (const file of selectedFiles) {
+      try {
+        uploadedFiles.push(presentFile(await uploadCloudFile(user, file)))
+      } catch (error) {
+        failures.push(`${file.name}: ${error.message}`)
+      }
+    }
+
+    if (uploadedFiles.length) {
+      setFiles((previous) => [...uploadedFiles, ...previous])
+      setActivePage('My Files')
+      await refreshActivities()
+    }
+    setFileMessage(
+      failures.length
+        ? `Some uploads failed. ${failures.join(' ')}`
+        : `${uploadedFiles.length} file${uploadedFiles.length === 1 ? '' : 's'} uploaded to Supabase Storage.`,
+    )
+    setIsUploading(false)
+  }
+
+  const handleDownload = async (file) => {
+    setFileMessage('')
+    try {
+      await downloadCloudFile(file)
+      await refreshActivities()
+    } catch (error) {
+      setFileMessage(error.message || `Unable to download ${file.name}.`)
+    }
+  }
+
+  const handleDelete = async (file) => {
+    setFileMessage('')
+    try {
+      await deleteCloudFile(file)
+      setFiles((previous) => previous.filter((item) => item.id !== file.id))
+      await refreshActivities()
+      setFileMessage(`${file.name} was deleted from cloud storage.`)
+    } catch (error) {
+      setFileMessage(error.message || `Unable to delete ${file.name}.`)
+    }
+  }
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true)
+    setFileMessage('')
+    try {
+      await onLogout()
+    } catch (error) {
+      setFileMessage(error.message || 'Unable to sign out.')
+      setIsLoggingOut(false)
+    }
   }
 
   const pageTitle =
     activePage === 'Overview' ? 'Dashboard' : activePage
+  const menuItems = isAdmin
+    ? [...navigation, { label: 'Admin Console', icon: ShieldCheck }]
+    : navigation
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -222,7 +365,7 @@ function Dashboard({ onLogout }) {
           </p>
 
           <nav className="space-y-1">
-            {navigation.map(({ label, icon: Icon }) => (
+            {menuItems.map(({ label, icon: Icon }) => (
               <button
                 key={label}
                 type="button"
@@ -239,11 +382,6 @@ function Dashboard({ onLogout }) {
                 <Icon size={19} />
                 {label}
 
-                {label === 'Shared Files' && (
-                  <span className="ml-auto rounded-md bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                    5
-                  </span>
-                )}
               </button>
             ))}
           </nav>
@@ -257,7 +395,7 @@ function Dashboard({ onLogout }) {
               </div>
 
               <span className="text-xs font-semibold text-blue-700">
-                25.6%
+                Private bucket
               </span>
             </div>
 
@@ -265,12 +403,8 @@ function Dashboard({ onLogout }) {
               Storage usage
             </p>
 
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
-              <div className="h-full w-[25.6%] rounded-full bg-blue-600" />
-            </div>
-
             <p className="mt-2 text-xs text-slate-500">
-              256 MB of 1 GB
+              {formatFileSize(totalBytes)} in your files
             </p>
           </div>
 
@@ -289,7 +423,8 @@ function Dashboard({ onLogout }) {
 
           <button
             type="button"
-            onClick={onLogout}
+            onClick={handleLogout}
+            disabled={isLoggingOut}
             className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
           >
             <LogOut size={19} />
@@ -298,12 +433,12 @@ function Dashboard({ onLogout }) {
 
           <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-semibold text-white">
-              C
+              {displayName.charAt(0).toUpperCase()}
             </div>
 
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-slate-800">
-                Chandan
+                {displayName}
               </p>
               <p className="truncate text-xs text-slate-400">
                 Personal workspace
@@ -372,16 +507,31 @@ function Dashboard({ onLogout }) {
 
             <div className="hidden items-center gap-2 sm:flex">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700">
-                C
+                {displayName.charAt(0).toUpperCase()}
               </div>
               <span className="text-sm font-medium text-slate-700">
-                Chandan
+                {displayName}
               </span>
             </div>
           </div>
         </header>
 
         <main className="mx-auto max-w-[1600px] p-5 sm:p-8 lg:p-10">
+          {activePage === 'Admin Console' ? (
+            isAdmin ? (
+              <AdminDashboard
+                overview={adminOverview}
+                isLoading={isLoadingAdmin}
+                errorMessage={adminError}
+                onRefresh={refreshAdminOverview}
+              />
+            ) : (
+              <p role="alert" className="rounded-xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-800">
+                Admin access is not enabled for this account.
+              </p>
+            )
+          ) : (
+            <>
           {/* Welcome section */}
           <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
             <div>
@@ -390,7 +540,7 @@ function Dashboard({ onLogout }) {
               </p>
 
               <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-                Welcome back, Chandan
+                Welcome back, {displayName}
               </h1>
 
               <p className="mt-2 text-sm leading-6 text-slate-500">
@@ -398,54 +548,61 @@ function Dashboard({ onLogout }) {
               </p>
             </div>
 
-            <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700">
+            <label className={`inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 ${isUploading ? 'cursor-wait opacity-70' : 'cursor-pointer'}`}>
               <Upload size={17} />
-              Upload files
+              {isUploading ? 'Uploading…' : 'Upload files'}
               <input
                 type="file"
                 multiple
+                disabled={isUploading}
                 className="hidden"
                 onChange={handleUpload}
               />
             </label>
           </div>
 
+          {fileMessage && (
+            <p role="status" className="mb-6 rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm leading-6 text-blue-800">
+              {fileMessage}
+            </p>
+          )}
+
           {/* Statistics */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               title="Total files"
               value={String(files.length).padStart(2, '0')}
-              description="Files in this demo"
+              description="Files in your cloud account"
               icon={Files}
               color="blue"
-              change="+2 this week"
+              change="Supabase Storage"
             />
 
             <StatCard
               title="Storage used"
-              value="256 MB"
-              description="Of 1 GB sample quota"
+              value={formatFileSize(totalBytes)}
+              description="File contents in your bucket"
               icon={HardDrive}
               color="violet"
-              change="25.6% used"
+              change="Supabase Storage"
             />
 
             <StatCard
               title="Active shares"
-              value="05"
-              description="Sample sharing links"
+              value="Not active"
+              description="Sharing is not connected"
               icon={Share2}
               color="emerald"
-              change="2 expiring soon"
+              change="Planned feature"
             />
 
             <StatCard
               title="Security status"
-              value="Protected"
-              description="Demo security overview"
+              value="Encryption off"
+              description="Client-side encryption is not implemented"
               icon={ShieldCheck}
               color="amber"
-              change="Review settings"
+              change="Review setup"
             />
           </div>
 
@@ -471,9 +628,9 @@ function Dashboard({ onLogout }) {
                   </div>
 
                   <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
-                    Secure sharing, client-side encryption, and access
-                    controls are planned features. Complete the security
-                    setup when these services are implemented.
+                      Uploads use your Supabase account and access policies
+                      after setup. Sharing and client-side encryption are
+                      still planned features.
                   </p>
                 </div>
               </div>
@@ -530,24 +687,34 @@ function Dashboard({ onLogout }) {
                   <SettingRow
                     icon={LockKeyhole}
                     title="Private storage"
-                    description="Private bucket planned"
+                    description="Configured as a private Supabase bucket in supabase/schema.sql"
                   />
                   <SettingRow
                     icon={ShieldCheck}
                     title="Client-side encryption"
-                    description="Not implemented yet"
+                    description="Not implemented. Cloud files are not app-encrypted."
                   />
                   <SettingRow
                     icon={Clock3}
                     title="Expiring sharing links"
-                    description="Backend enforcement planned"
+                    description="Not implemented yet"
                   />
                 </div>
               ) : activePage === 'Activity Logs' ? (
-                <div className="divide-y divide-slate-100">
-                  {activities.map((activity) => (
-                    <ActivityRow key={activity.title} activity={activity} />
-                  ))}
+                <div>
+                  {activityError ? (
+                    <p role="alert" className="p-6 text-sm text-rose-700">{activityError}</p>
+                  ) : activities.length ? (
+                    <div className="divide-y divide-slate-100 px-5 sm:px-6">
+                      {activities.map((activity) => (
+                        <ActivityRow key={activity.id} activity={activity} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="px-6 py-12 text-center text-sm text-slate-500">
+                      {isLoadingActivities ? 'Loading your activity…' : 'No file activity yet. Upload, download, or delete a file to see events here.'}
+                    </p>
+                  )}
                 </div>
               ) : activePage === 'Settings' ? (
                 <div className="p-6">
@@ -609,49 +776,33 @@ function Dashboard({ onLogout }) {
                             </td>
 
                             <td className="px-4 py-4">
-                              <span
-                                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium ${
-                                  file.encrypted
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : 'bg-amber-50 text-amber-700'
-                                }`}
-                              >
-                                <span
-                                  className={`h-1.5 w-1.5 rounded-full ${
-                                    file.encrypted
-                                      ? 'bg-emerald-500'
-                                      : 'bg-amber-500'
-                                  }`}
-                                />
-                                {file.encrypted ? 'Sample status' : 'Local preview'}
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-medium text-amber-700">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                Cloud · not app-encrypted
                               </span>
                             </td>
 
                             <td className="px-4 py-4">
-                              {file.localPreview ? (
+                              <div className="flex items-center gap-1">
                                 <button
                                   type="button"
-                                  aria-label={`Remove ${file.name} from this preview`}
-                                  title="Remove from this preview"
-                                  onClick={() =>
-                                    setFiles((previous) =>
-                                      previous.filter((item) => item.id !== file.id),
-                                    )
-                                  }
+                                  aria-label={`Download ${file.name}`}
+                                  title="Download file"
+                                  onClick={() => handleDownload(file)}
+                                  className="rounded-lg p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                                >
+                                  <Download size={17} />
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Delete ${file.name} from cloud storage`}
+                                  title="Delete file"
+                                  onClick={() => handleDelete(file)}
                                   className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                                 >
-                                  <Trash2 size={18} />
+                                  <Trash2 size={17} />
                                 </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  aria-label={`Options for ${file.name}`}
-                                  title="File options preview"
-                                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                >
-                                  <MoreHorizontal size={18} />
-                                </button>
-                              )}
+                              </div>
                             </td>
                           </tr>
                         )
@@ -666,14 +817,22 @@ function Dashboard({ onLogout }) {
                         className="mx-auto text-slate-300"
                       />
                       <p className="mt-3 text-sm font-medium text-slate-700">
-                        {activePage === 'Shared Files' && !searchQuery
-                          ? 'No sample shared files'
-                          : 'No matching files'}
+                        {isLoadingFiles
+                          ? 'Loading cloud files…'
+                          : activePage === 'Shared Files'
+                            ? 'File sharing is not connected yet'
+                            : searchQuery
+                              ? 'No matching files'
+                              : 'No cloud files yet'}
                       </p>
                       <p className="mt-1 text-xs text-slate-400">
-                        {activePage === 'Shared Files' && !searchQuery
-                          ? 'Shared links are a planned feature and are not connected yet.'
-                          : 'Try a different search term.'}
+                        {isLoadingFiles
+                          ? 'Loading your Supabase file list.'
+                          : activePage === 'Shared Files'
+                            ? 'Secure sharing will be added in a later step.'
+                            : searchQuery
+                              ? 'Try a different search term.'
+                              : 'Upload a file to store it in your private bucket.'}
                       </p>
                     </div>
                   )}
@@ -682,7 +841,7 @@ function Dashboard({ onLogout }) {
 
               <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4">
                 <span className="text-xs text-slate-400">
-                  Demo data · Not connected to cloud storage
+                  File contents are in Supabase Storage; client-side encryption is not enabled.
                 </span>
 
                 <button
@@ -706,7 +865,7 @@ function Dashboard({ onLogout }) {
                     Recent activity
                   </h3>
                   <p className="mt-1 text-xs text-slate-500">
-                    Example workspace events
+                    Your recent file events
                   </p>
                 </div>
 
@@ -721,9 +880,13 @@ function Dashboard({ onLogout }) {
               </div>
 
               <div className="divide-y divide-slate-100 px-5 sm:px-6">
-                {activities.map((activity) => (
-                  <ActivityRow key={activity.title} activity={activity} />
-                ))}
+                {activities.length ? activities.slice(0, 3).map((activity) => (
+                  <ActivityRow key={activity.id} activity={activity} />
+                )) : (
+                  <p className="py-5 text-sm text-slate-500">
+                    {isLoadingActivities ? 'Loading activity…' : activityError || 'No file activity yet.'}
+                  </p>
+                )}
               </div>
 
               <div className="mx-5 mb-5 mt-2 rounded-xl bg-slate-50 p-4 sm:mx-6">
@@ -752,8 +915,10 @@ function Dashboard({ onLogout }) {
 
           <footer className="mt-8 flex flex-col justify-between gap-2 border-t border-slate-200 py-5 text-xs text-slate-400 sm:flex-row">
             <p>© 2026 SecureCloud. Secure file management.</p>
-            <p>Development preview · Cloud services not connected</p>
+            <p>Supabase Storage · Client-side encryption not enabled</p>
           </footer>
+            </>
+          )}
         </main>
       </div>
     </div>
